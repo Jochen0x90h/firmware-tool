@@ -1,8 +1,6 @@
 /vcpkg/
 /build/
 /__pycache__/
-/cpresets.txt
-/vpresets.txt
 CMakeUserPresets.json
 
 # VSCode

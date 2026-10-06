@@ -96,10 +96,14 @@ void printFileInfo(const fs::path &path, int sectionSize, uint32_t sectionCrc) {
     //auto formattedTime = std::format("{0:%F} {0:%R}", zonedTime);
     auto formattedTime = std::format("{0:%R}", zonedTime);
 
-    std::cout << " file " << path
-        << " size " << sectionSize / 1024 << 'k' //<< " (" << std::hex << std::setw(8) << std::setfill('0') << sectionSize << ')'
-        << " crc " << std::hex << sectionCrc << std::dec
-        << " time " << formattedTime << std::endl;
+    std::cout << " file " << path;
+    std::cout << " size ";
+    if (sectionSize < 1000)
+        std::cout << sectionSize << 'B';
+    else
+        std::cout << sectionSize / 1000 << "kB"; //<< " (" << std::hex << std::setw(8) << std::setfill('0') << sectionSize << ')'
+    std::cout << " crc " << std::hex << sectionCrc << std::dec;
+    std::cout << " time " << formattedTime << std::endl;
 }
 
 int main(int argc, char **argv) {
@@ -193,6 +197,8 @@ int main(int argc, char **argv) {
         std::cout << "Create firmware file " << outPath << std::endl;
 
         // device identifier
+        if (strlen(argv[2]) > 16)
+            std::cout << "Warning: Device identifier too long" << std::endl;
         char deviceIdentifier[16 + 1] = {};
         strncpy(deviceIdentifier, argv[2], 16);
 
@@ -206,11 +212,15 @@ int main(int argc, char **argv) {
         for (int i = 3; i < argc; i += 2) {
             uint32_t sectionIdentifier = std::stoi(argv[i + 0]);
             fs::path path = argv[i + 1];
-            std::error_code ec;
-            uint32_t sectionSize = fs::file_size(path, ec);
-            if (ec) {
-                std::cerr << "Error: Cannot access file " << path << ": " << ec.message() << std::endl;
-                return 1;
+            uint32_t sectionSize = 0;
+            if (path != "-") {
+                // get section size
+                std::error_code ec;
+                sectionSize = fs::file_size(path, ec);
+                if (ec) {
+                    std::cerr << "Error: Cannot access file " << path << ": " << ec.message() << std::endl;
+                    return 1;
+                }
             }
 
             //std::cout << "Section " << sectionIdentifier << " file " << path << " size " << sectionSize << std::endl;
@@ -232,13 +242,27 @@ int main(int argc, char **argv) {
             // get section identifier
             uint32_t sectionIdentifier = std::stoi(argv[i + 0]);
 
-            // get file path and size
+            // get file path
             fs::path path = argv[i + 1];
-            uint32_t sectionSize = fs::file_size(path);
 
-            // determine section CRC
-            std::ifstream f(path, std::ios::binary);
-            uint32_t sectionCrc = calcCrc(f, buffer);
+            uint32_t sectionSize = 0;
+            uint32_t sectionCrc = 0xffffffff;
+            std::ifstream f;
+            std::cout << "Section " << sectionIdentifier;
+            if (path != "-") {
+                // get section size
+                sectionSize = fs::file_size(path);
+
+                // open file
+                f.open(path, std::ios::binary);
+
+                // determine section CRC
+                sectionCrc = calcCrc(f, buffer);
+
+                printFileInfo(path, sectionSize, sectionCrc);
+            } else {
+                std::cout << " empty" << std::endl;
+            }
 
             // write section header
             fw.write((char *)&sectionIdentifier, 4);
@@ -246,16 +270,20 @@ int main(int argc, char **argv) {
             fw.write((char *)&sectionSize, 4);
 
             // copy file
-            while (true) {
+            /*while (true) {
                 f.read(buffer.ch, 8192);
                 int count = f.gcount();
                 if (count == 0)
                     break;
                 fw.write(buffer.ch, count);
+            }*/
+            while (sectionSize > 0) {
+                int toCopy = std::min(sectionSize, 8192u);
+                f.read(buffer.ch, toCopy);
+                fw.write(buffer.ch, toCopy);
+                sectionSize -= toCopy;
             }
 
-            std::cout << "Section " << sectionIdentifier;
-            printFileInfo(path, sectionSize, sectionCrc);
         }
     }
     return 0;
